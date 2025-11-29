@@ -1,0 +1,5 @@
+{
+  "name": "MinRely Crypto Platform",
+  "description": "A modern cryptocurrency platform with user dashboard, wallet management, and admin panel connected to MySQL.",
+  "requestFramePermissions": []
+}
