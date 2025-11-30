@@ -71,17 +71,18 @@ const Navbar = ({ isLoggedIn, logout }: { isLoggedIn: boolean, logout: () => voi
   </nav>
 );
 
-const Footer = ({ apiStatus }: { apiStatus: 'checking' | 'online' | 'offline' }) => (
+const Footer = ({ apiStatus }: { apiStatus: 'checking' | 'online' | 'offline' | 'html_error' }) => (
   <footer className="bg-white border-t border-gray-200 py-12">
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 grid grid-cols-1 md:grid-cols-4 gap-8">
       <div>
         <h3 className="text-xl font-bold text-primary mb-4">MinRely</h3>
         <p className="text-gray-500 text-sm">The most reliable platform for crypto monitoring and asset management. Secure, fast, and transparent.</p>
-        <div className="mt-4 flex items-center space-x-2 text-xs">
+        <div className="mt-4 flex flex-col space-y-1 text-xs">
             <span className="text-gray-400">System Status:</span>
             {apiStatus === 'checking' && <span className="text-yellow-500 flex items-center"><span className="w-2 h-2 bg-yellow-500 rounded-full mr-1 animate-pulse"></span> Connecting...</span>}
             {apiStatus === 'online' && <span className="text-green-500 flex items-center"><span className="w-2 h-2 bg-green-500 rounded-full mr-1"></span> Online</span>}
-            {apiStatus === 'offline' && <span className="text-red-500 flex items-center"><span className="w-2 h-2 bg-red-500 rounded-full mr-1"></span> Offline</span>}
+            {apiStatus === 'offline' && <span className="text-red-500 flex items-center"><span className="w-2 h-2 bg-red-500 rounded-full mr-1"></span> Offline (Check Node.js/CORS)</span>}
+            {apiStatus === 'html_error' && <span className="text-orange-600 flex items-center font-bold"><span className="w-2 h-2 bg-orange-600 rounded-full mr-1"></span> Error: Backend Not Started (Index of /)</span>}
         </div>
       </div>
       <div>
@@ -240,6 +241,16 @@ const AuthPage = ({ type, onLogin }: { type: 'login' | 'register', onLogin: (use
             body: JSON.stringify({ email, password, referralCode: referral })
         });
 
+        // Check content type to prevent parsing HTML error pages as JSON
+        const contentType = response.headers.get("content-type");
+        if (!contentType || !contentType.includes("application/json")) {
+            const text = await response.text();
+            if (text.includes("Index of /")) {
+                throw new Error("Backend server is not running (Index of / detected). Check server.");
+            }
+            throw new Error("Server returned an invalid response (not JSON). The backend might be down.");
+        }
+
         const data = await response.json();
 
         if (!response.ok) {
@@ -256,7 +267,8 @@ const AuthPage = ({ type, onLogin }: { type: 'login' | 'register', onLogin: (use
         }
 
     } catch (err: any) {
-        setError(err.message);
+        console.error("Auth Error:", err);
+        setError(err.message || "Network Error");
     } finally {
         setLoading(false);
     }
@@ -269,7 +281,7 @@ const AuthPage = ({ type, onLogin }: { type: 'login' | 'register', onLogin: (use
           <h2 className="text-3xl font-bold text-slate-900">{type === 'login' ? 'Welcome Back' : 'Create Account'}</h2>
           <p className="text-gray-500 mt-2">Enter your details to access your account</p>
         </div>
-        {error && <div className="mb-4 p-3 bg-red-100 text-red-700 rounded-lg text-sm text-center">{error}</div>}
+        {error && <div className="mb-4 p-3 bg-red-100 text-red-700 rounded-lg text-sm text-center font-medium">{error}</div>}
         <form onSubmit={handleSubmit} className="space-y-6">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Email Address</label>
@@ -438,12 +450,19 @@ const WalletPage = ({ user }: { user: User }) => {
   // Fetch admin wallet settings on mount
   useEffect(() => {
     fetch(`${API_BASE_URL}/api/settings`)
-      .then(res => res.json())
+      .then(res => {
+        const type = res.headers.get("content-type");
+        if (!type || !type.includes("application/json")) throw new Error("Backend not ready");
+        return res.json();
+      })
       .then(data => {
         if(data && data.admin_wallet) setAdminWallet(data.admin_wallet);
         else setAdminWallet('Contact Support');
       })
-      .catch(err => console.error("Failed to fetch settings", err));
+      .catch(err => {
+          console.error("Failed to fetch settings", err);
+          setAdminWallet('Network Error / Backend Down');
+      });
   }, []);
 
   const handleTransaction = async () => {
@@ -803,14 +822,15 @@ const AdminDashboardWrapper = ({ user, logout }: { user: User, logout: () => voi
 function App() {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
-  const [apiStatus, setApiStatus] = useState<'checking' | 'online' | 'offline'>('checking');
+  const [apiStatus, setApiStatus] = useState<'checking' | 'online' | 'offline' | 'html_error'>('checking');
 
   const fetchUser = async (token: string) => {
       try {
           const res = await fetch(`${API_BASE_URL}/api/user`, {
               headers: { 'Authorization': `Bearer ${token}` }
           });
-          if(res.ok) {
+          const type = res.headers.get("content-type");
+          if(res.ok && type && type.includes("application/json")) {
               const userData = await res.json();
               setUser(userData);
           } else {
@@ -827,9 +847,26 @@ function App() {
     console.log(`Connecting to backend at: ${API_BASE_URL}...`);
     try {
       const res = await fetch(`${API_BASE_URL}/`);
+      const contentType = res.headers.get("content-type");
+      
+      // If server returns HTML instead of JSON, it's likely showing "Index of /"
+      if (contentType && !contentType.includes("application/json")) {
+         const text = await res.text();
+         if(text.includes("Index of")) {
+             console.error("❌ API Error: Server is showing directory listing instead of running the app.");
+             setApiStatus('html_error');
+             return;
+         }
+      }
+
       if(res.ok) {
-        console.log("✅ API Connected Successfully!");
-        setApiStatus('online');
+        if (contentType && contentType.includes("application/json")) {
+            console.log("✅ API Connected Successfully!");
+            setApiStatus('online');
+        } else {
+            console.error("❌ API Connected but returned unknown HTML.");
+            setApiStatus('html_error');
+        }
       } else {
         console.error("❌ API Connected but returned error:", res.status);
         setApiStatus('offline');

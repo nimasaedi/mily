@@ -6,9 +6,19 @@ const jwt = require('jsonwebtoken');
 require('dotenv').config();
 
 const app = express();
+// Default to 5000 if not specified
 const PORT = process.env.PORT || 5000;
 
-app.use(cors());
+// --- CORS Configuration ---
+// IMPORTANT FIX: You cannot set origin: '*' AND credentials: true together.
+// Since we use Bearer Tokens in Headers (not Cookies), we can set credentials to false.
+app.use(cors({
+    origin: '*', 
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin'],
+    credentials: false 
+}));
+
 app.use(express.json());
 
 // --- Database Connection ---
@@ -16,15 +26,18 @@ const db = mysql.createPool({
   host: process.env.DB_HOST || 'localhost',
   user: process.env.DB_USER || 'root',
   password: process.env.DB_PASSWORD || '',
-  database: process.env.DB_NAME || 'minrely_db'
+  database: process.env.DB_NAME || 'minrely_db',
+  waitForConnections: true,
+  connectionLimit: 10,
+  queueLimit: 0
 });
 
 // Test Connection
 db.getConnection((err, connection) => {
   if (err) {
-    console.error('Error connecting to MySQL:', err);
+    console.error('❌ Database Connection Error:', err.message);
   } else {
-    console.log('Connected to MySQL Database');
+    console.log('✅ Connected to MySQL Database Successfully');
     connection.release();
   }
 });
@@ -47,12 +60,14 @@ const authenticateToken = (req, res, next) => {
 // Register
 app.post('/api/register', async (req, res) => {
   const { email, password, referralCode } = req.body;
+  if (!email || !password) return res.status(400).json({ error: "Email and password required" });
+
   const hashedPassword = await bcrypt.hash(password, 10);
   
   const sql = 'INSERT INTO users (email, password, referral_code, role, balance) VALUES (?, ?, ?, ?, ?)';
   db.query(sql, [email, hashedPassword, referralCode, 'user', 0], (err, result) => {
     if (err) return res.status(500).json({ error: err.message });
-    res.status(201).json({ message: 'User registered successfully' });
+    res.status(201).json({ message: 'User registered successfully', user: { email, role: 'user' } });
   });
 });
 
@@ -158,7 +173,6 @@ app.get('/api/settings', (req, res) => {
 app.post('/api/admin/settings', authenticateToken, (req, res) => {
     if (req.user.role !== 'admin') return res.sendStatus(403);
     const { admin_wallet } = req.body;
-    // Assuming single row for settings
     const sql = 'UPDATE settings SET admin_wallet = ? WHERE id = 1'; 
     db.query(sql, [admin_wallet], (err, result) => {
          if (err) return res.status(500).json({ error: err.message });
@@ -168,12 +182,14 @@ app.post('/api/admin/settings', authenticateToken, (req, res) => {
 
 // --- Basic Health Check Route ---
 app.get('/', (req, res) => {
-  res.json({ 
+  res.status(200).json({ 
     message: 'MinRely Backend API is running successfully!',
-    environment: process.env.NODE_ENV || 'development' 
+    environment: process.env.NODE_ENV || 'development',
+    cors_status: 'enabled'
   });
 });
 
 app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+  console.log(`🚀 Server running on port ${PORT}`);
+  console.log(`To test, open: http://localhost:${PORT}/ or your domain.`);
 });
