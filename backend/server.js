@@ -6,17 +6,16 @@ const jwt = require('jsonwebtoken');
 require('dotenv').config();
 
 const app = express();
-// Default to 5000 if not specified
+// Default to 5000. Important: This must match the port in .htaccess
 const PORT = process.env.PORT || 5000;
 
 // --- CORS Configuration ---
-// IMPORTANT FIX: You cannot set origin: '*' AND credentials: true together.
-// Since we use Bearer Tokens in Headers (not Cookies), we can set credentials to false.
+// Allowing all origins to fix "Network Error" during development.
 app.use(cors({
     origin: '*', 
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin'],
-    credentials: false 
+    credentials: false // Must be false if origin is '*'
 }));
 
 app.use(express.json());
@@ -62,13 +61,20 @@ app.post('/api/register', async (req, res) => {
   const { email, password, referralCode } = req.body;
   if (!email || !password) return res.status(400).json({ error: "Email and password required" });
 
-  const hashedPassword = await bcrypt.hash(password, 10);
-  
-  const sql = 'INSERT INTO users (email, password, referral_code, role, balance) VALUES (?, ?, ?, ?, ?)';
-  db.query(sql, [email, hashedPassword, referralCode, 'user', 0], (err, result) => {
-    if (err) return res.status(500).json({ error: err.message });
-    res.status(201).json({ message: 'User registered successfully', user: { email, role: 'user' } });
-  });
+  try {
+    const hashedPassword = await bcrypt.hash(password, 10);
+    const sql = 'INSERT INTO users (email, password, referral_code, role, balance) VALUES (?, ?, ?, ?, ?)';
+    db.query(sql, [email, hashedPassword, referralCode, 'user', 0], (err, result) => {
+        if (err) {
+            console.error("Register SQL Error:", err);
+            return res.status(500).json({ error: err.message });
+        }
+        res.status(201).json({ message: 'User registered successfully', user: { email, role: 'user' } });
+    });
+  } catch (e) {
+      console.error("Register Error:", e);
+      res.status(500).json({ error: "Internal server error" });
+  }
 });
 
 // Login
@@ -182,14 +188,15 @@ app.post('/api/admin/settings', authenticateToken, (req, res) => {
 
 // --- Basic Health Check Route ---
 app.get('/', (req, res) => {
+  console.log("Health Check Requested");
   res.status(200).json({ 
     message: 'MinRely Backend API is running successfully!',
     environment: process.env.NODE_ENV || 'development',
-    cors_status: 'enabled'
+    status: 'active'
   });
 });
 
 app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
-  console.log(`To test, open: http://localhost:${PORT}/ or your domain.`);
+  console.log(`Waiting for requests via .htaccess proxy...`);
 });
