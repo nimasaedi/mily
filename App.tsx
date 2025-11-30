@@ -5,7 +5,8 @@ import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContai
 import { motion, AnimatePresence } from 'framer-motion';
 
 // --- API CONFIGURATION ---
-const API_BASE_URL = "https://rider2.ir/wp-request";
+// Updated to the new root path provided
+const API_BASE_URL = "https://req.rider2.ir";
 
 // --- Service Helpers ---
 const getAuthHeaders = () => {

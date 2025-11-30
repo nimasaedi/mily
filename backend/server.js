@@ -166,6 +166,14 @@ app.post('/api/admin/settings', authenticateToken, (req, res) => {
     });
 });
 
+// --- Basic Health Check Route ---
+app.get('/', (req, res) => {
+  res.json({ 
+    message: 'MinRely Backend API is running successfully!',
+    environment: process.env.NODE_ENV || 'development' 
+  });
+});
+
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
