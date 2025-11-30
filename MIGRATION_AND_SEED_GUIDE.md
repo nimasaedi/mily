@@ -3,10 +3,10 @@
 To run this project on your host, you need to create a MySQL database and import the following schema.
 
 ## 1. Create Database
-Create a new database named `minrely_db` (or whatever you configured in `.env`).
+The database name used in this project is `rid_req_rid`. Ensure this database is created in your phpMyAdmin/cPanel.
 
 ## 2. SQL Schema
-Run the following SQL queries in phpMyAdmin or your MySQL client:
+Run the following SQL queries in phpMyAdmin (inside `rid_req_rid` database) or your MySQL client:
 
 ```sql
 -- Users Table
@@ -47,18 +47,19 @@ INSERT INTO settings (id, admin_wallet) VALUES (1, 'YOUR_TRC20_WALLET_ADDRESS')
 ON DUPLICATE KEY UPDATE id=id;
 
 -- Insert Admin User (Password: admin123)
--- Note: In production, generate a real bcrypt hash. This hash is for 'admin123'
+-- Note: In production, you should register via the frontend to get a proper hash, then manually change role to 'admin' in DB.
+-- The hash below corresponds to 'admin123'
 INSERT INTO users (email, password, role) VALUES ('admin@minrely.com', '$2b$10$YourHashedPasswordHere...', 'admin');
 ```
 
 ## 3. Environment Variables (.env)
-Create a `.env` file in the `backend` folder:
+Create a `.env` file in the `backend` folder on your host with the following content (Updated with your provided credentials):
 
-```
-DB_HOST=localhost
-DB_USER=your_db_username
-DB_PASSWORD=your_db_password
-DB_NAME=minrely_db
-JWT_SECRET=secure_random_string
+```env
+DB_HOST=62.60.164.17
+DB_USER=rid_req_user_rid
+DB_PASSWORD=qGHr6D]n,=7?
+DB_NAME=rid_req_rid
+JWT_SECRET=your_super_secret_key_that_is_long_and_random
 PORT=5000
 ```

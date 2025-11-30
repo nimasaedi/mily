@@ -6,26 +6,27 @@ const jwt = require('jsonwebtoken');
 require('dotenv').config();
 
 const app = express();
-// Default to 5000. Important: This must match the port in .htaccess
+// Default to 5000 as requested
 const PORT = process.env.PORT || 5000;
 
 // --- CORS Configuration ---
-// Allowing all origins to fix "Network Error" during development.
+app.set('trust proxy', 1); // Trust cPanel proxy
 app.use(cors({
     origin: '*', 
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin'],
-    credentials: false // Must be false if origin is '*'
+    credentials: false 
 }));
 
 app.use(express.json());
 
 // --- Database Connection ---
+// Credentials must be provided via .env file
 const db = mysql.createPool({
-  host: process.env.DB_HOST || 'localhost',
-  user: process.env.DB_USER || 'root',
-  password: process.env.DB_PASSWORD || '',
-  database: process.env.DB_NAME || 'minrely_db',
+  host: process.env.DB_HOST,
+  user: process.env.DB_USER,
+  password: process.env.DB_PASSWORD,
+  database: process.env.DB_NAME,
   waitForConnections: true,
   connectionLimit: 10,
   queueLimit: 0
@@ -34,12 +35,15 @@ const db = mysql.createPool({
 // Test Connection
 db.getConnection((err, connection) => {
   if (err) {
-    console.error('❌ Database Connection Error:', err.message);
+    console.error('❌ Database Connection Error. Please check your .env file:', err.message);
   } else {
     console.log('✅ Connected to MySQL Database Successfully');
     connection.release();
   }
 });
+
+// --- Constants ---
+const JWT_SECRET = process.env.JWT_SECRET || 'default_secret_key_please_change_in_env';
 
 // --- Middleware ---
 const authenticateToken = (req, res, next) => {
@@ -47,7 +51,7 @@ const authenticateToken = (req, res, next) => {
   const token = authHeader && authHeader.split(' ')[1];
   if (!token) return res.sendStatus(401);
 
-  jwt.verify(token, process.env.JWT_SECRET || 'secretkey', (err, user) => {
+  jwt.verify(token, JWT_SECRET, (err, user) => {
     if (err) return res.sendStatus(403);
     req.user = user;
     next();
@@ -87,7 +91,7 @@ app.post('/api/login', (req, res) => {
     
     const user = results[0];
     if (await bcrypt.compare(password, user.password)) {
-      const token = jwt.sign({ id: user.id, role: user.role }, process.env.JWT_SECRET || 'secretkey');
+      const token = jwt.sign({ id: user.id, role: user.role }, JWT_SECRET);
       res.json({ token, user: { id: user.id, email: user.email, role: user.role, balance: user.balance } });
     } else {
       res.status(403).json({ message: 'Invalid credentials' });
@@ -198,5 +202,4 @@ app.get('/', (req, res) => {
 
 app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
-  console.log(`Waiting for requests via .htaccess proxy...`);
 });
