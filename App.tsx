@@ -71,12 +71,18 @@ const Navbar = ({ isLoggedIn, logout }: { isLoggedIn: boolean, logout: () => voi
   </nav>
 );
 
-const Footer = () => (
+const Footer = ({ apiStatus }: { apiStatus: 'checking' | 'online' | 'offline' }) => (
   <footer className="bg-white border-t border-gray-200 py-12">
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 grid grid-cols-1 md:grid-cols-4 gap-8">
       <div>
         <h3 className="text-xl font-bold text-primary mb-4">MinRely</h3>
         <p className="text-gray-500 text-sm">The most reliable platform for crypto monitoring and asset management. Secure, fast, and transparent.</p>
+        <div className="mt-4 flex items-center space-x-2 text-xs">
+            <span className="text-gray-400">System Status:</span>
+            {apiStatus === 'checking' && <span className="text-yellow-500 flex items-center"><span className="w-2 h-2 bg-yellow-500 rounded-full mr-1 animate-pulse"></span> Connecting...</span>}
+            {apiStatus === 'online' && <span className="text-green-500 flex items-center"><span className="w-2 h-2 bg-green-500 rounded-full mr-1"></span> Online</span>}
+            {apiStatus === 'offline' && <span className="text-red-500 flex items-center"><span className="w-2 h-2 bg-red-500 rounded-full mr-1"></span> Offline</span>}
+        </div>
       </div>
       <div>
         <h4 className="font-semibold text-gray-800 mb-4">Platform</h4>
@@ -797,6 +803,7 @@ const AdminDashboardWrapper = ({ user, logout }: { user: User, logout: () => voi
 function App() {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
+  const [apiStatus, setApiStatus] = useState<'checking' | 'online' | 'offline'>('checking');
 
   const fetchUser = async (token: string) => {
       try {
@@ -816,8 +823,29 @@ function App() {
       }
   };
 
+  const checkApi = async () => {
+    console.log(`Connecting to backend at: ${API_BASE_URL}...`);
+    try {
+      const res = await fetch(`${API_BASE_URL}/`);
+      if(res.ok) {
+        console.log("✅ API Connected Successfully!");
+        setApiStatus('online');
+      } else {
+        console.error("❌ API Connected but returned error:", res.status);
+        setApiStatus('offline');
+      }
+    } catch(e) {
+       console.error("❌ API Connection Failed (Network Error / CORS):", e);
+       setApiStatus('offline');
+    }
+  };
+
   useEffect(() => {
     const token = localStorage.getItem('minrely_token');
+    
+    // Check API Health
+    checkApi();
+
     if (token) {
       fetchUser(token);
     } else {
@@ -845,7 +873,7 @@ function App() {
             <>
                 <Navbar isLoggedIn={!!user} logout={handleLogout} />
                 <HomePage />
-                <Footer />
+                <Footer apiStatus={apiStatus} />
             </>
         } />
         
