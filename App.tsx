@@ -1,29 +1,25 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { HashRouter, Routes, Route, Navigate, useLocation, Link } from 'react-router-dom';
 import { User, UserRole, Transaction, TransactionType, TransactionStatus, SiteSettings } from './types';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area } from 'recharts';
 import { motion, AnimatePresence } from 'framer-motion';
 
-// --- Mock Data & Service Simulation (Replace with actual API calls in production) ---
-const MOCK_USER: User = {
-  id: 1,
-  email: 'user@minrely.com',
-  role: UserRole.USER,
-  isActive: true,
-  balance: 1250.50,
-  createdAt: '2023-10-01',
-  referralCode: 'REF123'
+// --- API CONFIGURATION ---
+const API_BASE_URL = "https://rider2.ir/wp-request";
+
+// --- Service Helpers ---
+const getAuthHeaders = () => {
+  const token = localStorage.getItem('minrely_token');
+  return token ? { 
+    'Content-Type': 'application/json',
+    'Authorization': `Bearer ${token}` 
+  } : { 
+    'Content-Type': 'application/json' 
+  };
 };
 
-const MOCK_ADMIN: User = {
-  id: 99,
-  email: 'admin@minrely.com',
-  role: UserRole.ADMIN,
-  isActive: true,
-  balance: 0,
-  createdAt: '2023-01-01'
-};
-
+// --- Mock Data for UI Visuals (Charts/Winners) ---
+// These remain mocked as they are usually public data or complex crons
 const PREDICTION_DATA = [
   { name: 'Jan', price: 4000 },
   { name: 'Feb', price: 3000 },
@@ -220,14 +216,42 @@ const AuthPage = ({ type, onLogin }: { type: 'login' | 'register', onLogin: (use
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [referral, setReferral] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    // Simulate API call
-    if (email.includes('admin')) {
-      onLogin(MOCK_ADMIN);
-    } else {
-      onLogin(MOCK_USER);
+    setLoading(true);
+    setError('');
+
+    const endpoint = type === 'login' ? '/api/login' : '/api/register';
+    
+    try {
+        const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email, password, referralCode: referral })
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+            throw new Error(data.message || data.error || 'Authentication failed');
+        }
+
+        if (type === 'login') {
+            localStorage.setItem('minrely_token', data.token);
+            onLogin(data.user);
+        } else {
+            // After register, auto login or ask user to login
+            alert('Registration successful! Please log in.');
+            window.location.hash = '#/login';
+        }
+
+    } catch (err: any) {
+        setError(err.message);
+    } finally {
+        setLoading(false);
     }
   };
 
@@ -238,6 +262,7 @@ const AuthPage = ({ type, onLogin }: { type: 'login' | 'register', onLogin: (use
           <h2 className="text-3xl font-bold text-slate-900">{type === 'login' ? 'Welcome Back' : 'Create Account'}</h2>
           <p className="text-gray-500 mt-2">Enter your details to access your account</p>
         </div>
+        {error && <div className="mb-4 p-3 bg-red-100 text-red-700 rounded-lg text-sm text-center">{error}</div>}
         <form onSubmit={handleSubmit} className="space-y-6">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Email Address</label>
@@ -273,8 +298,12 @@ const AuthPage = ({ type, onLogin }: { type: 'login' | 'register', onLogin: (use
               />
             </div>
           )}
-          <button type="submit" className="w-full bg-primary text-white font-bold py-3 rounded-lg hover:bg-indigo-700 transition shadow-lg shadow-indigo-500/30">
-            {type === 'login' ? 'Sign In' : 'Sign Up'}
+          <button 
+            type="submit" 
+            disabled={loading}
+            className={`w-full bg-primary text-white font-bold py-3 rounded-lg hover:bg-indigo-700 transition shadow-lg shadow-indigo-500/30 ${loading ? 'opacity-70 cursor-not-allowed' : ''}`}
+          >
+            {loading ? 'Processing...' : (type === 'login' ? 'Sign In' : 'Sign Up')}
           </button>
         </form>
         <div className="mt-6 text-center text-sm text-gray-500">
@@ -367,55 +396,27 @@ const UserDashboardHome = ({ user }: { user: User }) => (
     <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
       <div className="bg-gradient-to-br from-primary to-indigo-700 rounded-2xl p-6 text-white shadow-lg">
         <p className="text-indigo-200 text-sm font-medium mb-1">Total Balance</p>
-        <h3 className="text-3xl font-bold">${user.balance.toLocaleString()}</h3>
+        <h3 className="text-3xl font-bold">${user.balance ? Number(user.balance).toLocaleString() : '0.00'}</h3>
         <div className="mt-4 flex space-x-2">
           <Link to="/dashboard/wallet" className="flex-1 bg-white/20 hover:bg-white/30 text-white py-2 rounded-lg text-sm font-medium text-center backdrop-blur-sm transition">Deposit</Link>
           <Link to="/dashboard/wallet" className="flex-1 bg-white/10 hover:bg-white/20 text-white py-2 rounded-lg text-sm font-medium text-center backdrop-blur-sm transition">Withdraw</Link>
         </div>
       </div>
       <div className="bg-white rounded-2xl p-6 border border-gray-200 shadow-sm flex flex-col justify-center">
-        <p className="text-gray-500 text-sm font-medium">Active Referrals</p>
-        <h3 className="text-3xl font-bold text-slate-800">12</h3>
-        <p className="text-green-500 text-xs mt-1 flex items-center"><i className="fas fa-arrow-up mr-1"></i> +2 this week</p>
+        <p className="text-gray-500 text-sm font-medium">Referral Code</p>
+        <h3 className="text-xl font-bold text-slate-800">{user.referralCode || 'N/A'}</h3>
+        <p className="text-green-500 text-xs mt-1 flex items-center">Share with friends</p>
       </div>
       <div className="bg-white rounded-2xl p-6 border border-gray-200 shadow-sm flex flex-col justify-center">
-        <p className="text-gray-500 text-sm font-medium">Total Profit</p>
-        <h3 className="text-3xl font-bold text-slate-800">+$240.50</h3>
-        <p className="text-green-500 text-xs mt-1 flex items-center"><i className="fas fa-chart-line mr-1"></i> +15.4%</p>
+        <p className="text-gray-500 text-sm font-medium">Status</p>
+        <h3 className="text-xl font-bold text-slate-800">Active</h3>
+        <p className="text-green-500 text-xs mt-1 flex items-center"><i className="fas fa-check-circle mr-1"></i> Verified</p>
       </div>
     </div>
 
     <div className="bg-white rounded-2xl p-6 border border-gray-200 shadow-sm">
-      <h3 className="text-lg font-bold text-slate-800 mb-4">Recent Activity</h3>
-      <div className="overflow-x-auto">
-        <table className="w-full text-left text-sm text-gray-600">
-          <thead>
-            <tr className="border-b border-gray-100">
-              <th className="pb-3 font-medium">Type</th>
-              <th className="pb-3 font-medium">Amount</th>
-              <th className="pb-3 font-medium">Status</th>
-              <th className="pb-3 font-medium text-right">Date</th>
-            </tr>
-          </thead>
-          <tbody>
-            {[
-              { type: 'Deposit', amount: 500, status: 'approved', date: '2023-10-25' },
-              { type: 'Withdrawal', amount: 200, status: 'pending', date: '2023-10-24' },
-            ].map((tx, idx) => (
-              <tr key={idx} className="border-b border-gray-50 last:border-0 hover:bg-gray-50 transition">
-                <td className="py-4">
-                  <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${tx.type === 'Deposit' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
-                    {tx.type}
-                  </span>
-                </td>
-                <td className="py-4 font-medium text-slate-800">${tx.amount}</td>
-                <td className="py-4 capitalize">{tx.status}</td>
-                <td className="py-4 text-right text-gray-400">{tx.date}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      <h3 className="text-lg font-bold text-slate-800 mb-4">Welcome back, {user.email}</h3>
+      <p className="text-gray-600">Head over to the Wallet section to manage your funds or check the History tab for past transactions.</p>
     </div>
   </div>
 );
@@ -423,7 +424,48 @@ const UserDashboardHome = ({ user }: { user: User }) => (
 const WalletPage = ({ user }: { user: User }) => {
   const [activeTab, setActiveTab] = useState<'deposit' | 'withdraw'>('deposit');
   const [amount, setAmount] = useState('');
-  const [adminWallet, setAdminWallet] = useState('TRX...ThinkingWalletAddress...ABC123456'); 
+  const [adminWallet, setAdminWallet] = useState('Loading...'); 
+  const [userWithdrawWallet, setUserWithdrawWallet] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  // Fetch admin wallet settings on mount
+  useEffect(() => {
+    fetch(`${API_BASE_URL}/api/settings`)
+      .then(res => res.json())
+      .then(data => {
+        if(data && data.admin_wallet) setAdminWallet(data.admin_wallet);
+        else setAdminWallet('Contact Support');
+      })
+      .catch(err => console.error("Failed to fetch settings", err));
+  }, []);
+
+  const handleTransaction = async () => {
+      if(!amount) return alert('Please enter an amount');
+      
+      setLoading(true);
+      try {
+          const res = await fetch(`${API_BASE_URL}/api/transaction`, {
+              method: 'POST',
+              headers: getAuthHeaders(),
+              body: JSON.stringify({
+                  type: activeTab,
+                  amount: parseFloat(amount),
+                  address: activeTab === 'withdraw' ? userWithdrawWallet : adminWallet
+              })
+          });
+          const data = await res.json();
+          if(res.ok) {
+              alert('Transaction request submitted successfully!');
+              setAmount('');
+          } else {
+              alert(data.error || 'Transaction failed');
+          }
+      } catch (err) {
+          alert('Network error');
+      } finally {
+          setLoading(false);
+      }
+  };
 
   return (
     <div className="max-w-4xl mx-auto space-y-8">
@@ -478,8 +520,12 @@ const WalletPage = ({ user }: { user: User }) => {
                 placeholder="0.00"
               />
             </div>
-            <button className="w-full bg-primary text-white font-bold py-3 rounded-lg hover:bg-indigo-700 transition shadow-lg shadow-indigo-500/30">
-              Submit Deposit Request
+            <button 
+                onClick={handleTransaction}
+                disabled={loading}
+                className="w-full bg-primary text-white font-bold py-3 rounded-lg hover:bg-indigo-700 transition shadow-lg shadow-indigo-500/30 disabled:opacity-50"
+            >
+              {loading ? 'Submitting...' : 'Submit Deposit Request'}
             </button>
           </div>
         ) : (
@@ -487,7 +533,7 @@ const WalletPage = ({ user }: { user: User }) => {
             <h3 className="text-xl font-bold text-slate-900">Withdraw Funds</h3>
             <div className="flex justify-between items-center p-4 bg-gray-50 rounded-lg border border-gray-200">
                <span className="text-gray-500">Available Balance</span>
-               <span className="text-xl font-bold text-slate-800">${user.balance.toLocaleString()}</span>
+               <span className="text-xl font-bold text-slate-800">${user.balance ? Number(user.balance).toLocaleString() : '0.00'}</span>
             </div>
             
             <div>
@@ -504,81 +550,199 @@ const WalletPage = ({ user }: { user: User }) => {
               <label className="block text-sm font-medium text-gray-700 mb-2">Your Wallet Address (TRC20)</label>
               <input 
                 type="text" 
+                value={userWithdrawWallet}
+                onChange={(e) => setUserWithdrawWallet(e.target.value)}
                 className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-primary focus:border-transparent outline-none transition"
                 placeholder="Enter your wallet address"
               />
             </div>
-            <button className="w-full bg-primary text-white font-bold py-3 rounded-lg hover:bg-indigo-700 transition shadow-lg shadow-indigo-500/30">
-              Request Withdrawal
+            <button 
+                onClick={handleTransaction}
+                disabled={loading}
+                className="w-full bg-primary text-white font-bold py-3 rounded-lg hover:bg-indigo-700 transition shadow-lg shadow-indigo-500/30 disabled:opacity-50"
+            >
+               {loading ? 'Processing...' : 'Request Withdrawal'}
             </button>
           </div>
         )}
       </div>
-      
-      {/* Transaction History Component reused/embedded here if needed specifically for wallet page */}
-       <div className="bg-white rounded-2xl p-6 border border-gray-200 shadow-sm">
-         <h3 className="text-lg font-bold text-slate-800 mb-4">Transaction History</h3>
-         <p className="text-gray-500 text-sm text-center py-8">No recent transactions found.</p>
-       </div>
     </div>
   );
 };
 
 // --- Admin Panel Components ---
 
-const AdminDashboard = () => (
+const AdminDashboard = () => {
+    const [stats, setStats] = useState({ users: 0, pending: 0, pool: 0 });
+
+    useEffect(() => {
+        // In a real app, you would make an API call for dashboard stats
+        // Currently mostly visual, but lets fetch users count at least
+        fetch(`${API_BASE_URL}/api/admin/users`, { headers: getAuthHeaders() })
+            .then(res => res.json())
+            .then(data => {
+                if(Array.isArray(data)) {
+                    setStats(prev => ({ ...prev, users: data.length }));
+                }
+            })
+            .catch(console.error);
+            
+        fetch(`${API_BASE_URL}/api/admin/transactions`, { headers: getAuthHeaders() })
+            .then(res => res.json())
+            .then(data => {
+                 if(Array.isArray(data)) {
+                    setStats(prev => ({ ...prev, pending: data.length }));
+                 }
+            })
+            .catch(console.error);
+
+    }, []);
+
+    return (
     <div className="space-y-6">
         <h2 className="text-2xl font-bold text-slate-800">Admin Overview</h2>
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
              {/* Stats Cards */}
              <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
                  <p className="text-gray-500 text-sm">Total Users</p>
-                 <h3 className="text-2xl font-bold text-slate-800">1,204</h3>
+                 <h3 className="text-2xl font-bold text-slate-800">{stats.users}</h3>
              </div>
              <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
-                 <p className="text-gray-500 text-sm">Pending Deposits</p>
-                 <h3 className="text-2xl font-bold text-yellow-600">5</h3>
+                 <p className="text-gray-500 text-sm">Pending Transactions</p>
+                 <h3 className="text-2xl font-bold text-yellow-600">{stats.pending}</h3>
              </div>
              <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
-                 <p className="text-gray-500 text-sm">Pending Withdrawals</p>
-                 <h3 className="text-2xl font-bold text-red-600">2</h3>
-             </div>
-             <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
-                 <p className="text-gray-500 text-sm">Total Pool</p>
-                 <h3 className="text-2xl font-bold text-green-600">$45,200</h3>
+                 <p className="text-gray-500 text-sm">System Status</p>
+                 <h3 className="text-2xl font-bold text-green-600">Online</h3>
              </div>
         </div>
         
-        {/* User Management Lite */}
         <div className="bg-white rounded-2xl p-6 border border-gray-200 shadow-sm">
-          <div className="flex justify-between items-center mb-6">
-             <h3 className="text-lg font-bold text-slate-800">Recent Registrations</h3>
-             <button className="text-primary text-sm font-medium hover:underline">View All</button>
-          </div>
-          <table className="w-full text-left text-sm text-gray-600">
-            <thead>
-              <tr className="border-b border-gray-100">
-                <th className="pb-3">Email</th>
-                <th className="pb-3">Status</th>
-                <th className="pb-3 text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-               <tr className="border-b border-gray-50">
-                  <td className="py-3">newuser@test.com</td>
-                  <td className="py-3"><span className="bg-green-100 text-green-700 px-2 py-1 rounded text-xs">Active</span></td>
-                  <td className="py-3 text-right">
-                     <button className="text-red-500 hover:text-red-700 text-xs font-medium">Ban</button>
-                  </td>
-               </tr>
-            </tbody>
-          </table>
+           <p className="text-gray-500">Use the sidebar to manage Users, Approve Transactions, or change Wallet settings.</p>
         </div>
     </div>
-);
+    );
+};
+
+const AdminUsers = () => {
+    const [users, setUsers] = useState<any[]>([]);
+    
+    useEffect(() => {
+        fetch(`${API_BASE_URL}/api/admin/users`, { headers: getAuthHeaders() })
+            .then(res => res.json())
+            .then(data => {
+                if(Array.isArray(data)) setUsers(data);
+            });
+    }, []);
+
+    return (
+        <div className="bg-white rounded-2xl p-6 border border-gray-200 shadow-sm">
+          <h3 className="text-lg font-bold text-slate-800 mb-6">User Management</h3>
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-sm text-gray-600">
+                <thead>
+                <tr className="border-b border-gray-100">
+                    <th className="pb-3">ID</th>
+                    <th className="pb-3">Email</th>
+                    <th className="pb-3">Balance</th>
+                    <th className="pb-3">Role</th>
+                    <th className="pb-3">Status</th>
+                </tr>
+                </thead>
+                <tbody>
+                {users.map(u => (
+                    <tr key={u.id} className="border-b border-gray-50">
+                        <td className="py-3">{u.id}</td>
+                        <td className="py-3">{u.email}</td>
+                        <td className="py-3">${u.balance}</td>
+                        <td className="py-3">{u.role}</td>
+                        <td className="py-3"><span className={`px-2 py-1 rounded text-xs ${u.is_active ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>{u.is_active ? 'Active' : 'Inactive'}</span></td>
+                    </tr>
+                ))}
+                </tbody>
+            </table>
+          </div>
+        </div>
+    );
+}
+
+const AdminTransactions = () => {
+    const [txs, setTxs] = useState<any[]>([]);
+
+    const fetchTxs = () => {
+        fetch(`${API_BASE_URL}/api/admin/transactions`, { headers: getAuthHeaders() })
+            .then(res => res.json())
+            .then(data => {
+                if(Array.isArray(data)) setTxs(data);
+            });
+    };
+    
+    useEffect(fetchTxs, []);
+
+    const handleUpdate = async (id: number, status: 'approved' | 'rejected', userId: number, amount: number, type: string) => {
+        const res = await fetch(`${API_BASE_URL}/api/admin/transaction/update`, {
+            method: 'POST',
+            headers: getAuthHeaders(),
+            body: JSON.stringify({ transactionId: id, status, userId, amount, type })
+        });
+        if(res.ok) fetchTxs();
+        else alert('Error updating transaction');
+    };
+
+    return (
+        <div className="bg-white rounded-2xl p-6 border border-gray-200 shadow-sm">
+            <h3 className="text-lg font-bold text-slate-800 mb-6">Pending Transactions</h3>
+             <div className="overflow-x-auto">
+            <table className="w-full text-left text-sm text-gray-600">
+                <thead>
+                <tr className="border-b border-gray-100">
+                    <th className="pb-3">User</th>
+                    <th className="pb-3">Type</th>
+                    <th className="pb-3">Amount</th>
+                    <th className="pb-3">Address</th>
+                    <th className="pb-3 text-right">Actions</th>
+                </tr>
+                </thead>
+                <tbody>
+                {txs.length === 0 && <tr><td colSpan={5} className="py-4 text-center">No pending transactions</td></tr>}
+                {txs.map(t => (
+                    <tr key={t.id} className="border-b border-gray-50">
+                        <td className="py-3">{t.email}</td>
+                        <td className="py-3 uppercase">{t.type}</td>
+                        <td className="py-3 font-bold">${t.amount}</td>
+                        <td className="py-3 text-xs font-mono">{t.address}</td>
+                        <td className="py-3 text-right space-x-2">
+                            <button onClick={() => handleUpdate(t.id, 'approved', t.user_id, t.amount, t.type)} className="text-green-600 font-bold text-xs border border-green-200 px-2 py-1 rounded hover:bg-green-50">Approve</button>
+                            <button onClick={() => handleUpdate(t.id, 'rejected', t.user_id, t.amount, t.type)} className="text-red-600 font-bold text-xs border border-red-200 px-2 py-1 rounded hover:bg-red-50">Reject</button>
+                        </td>
+                    </tr>
+                ))}
+                </tbody>
+            </table>
+            </div>
+        </div>
+    );
+}
 
 const AdminSettings = () => {
-    const [wallet, setWallet] = useState('TRX...ExistingWallet');
+    const [wallet, setWallet] = useState('');
+    
+    useEffect(() => {
+        fetch(`${API_BASE_URL}/api/settings`)
+          .then(res => res.json())
+          .then(data => {
+            if(data && data.admin_wallet) setWallet(data.admin_wallet);
+          });
+    }, []);
+
+    const save = async () => {
+        const res = await fetch(`${API_BASE_URL}/api/admin/settings`, {
+            method: 'POST',
+            headers: getAuthHeaders(),
+            body: JSON.stringify({ admin_wallet: wallet })
+        });
+        if(res.ok) alert('Settings Saved');
+    }
     
     return (
         <div className="max-w-2xl">
@@ -595,7 +759,7 @@ const AdminSettings = () => {
                         />
                         <p className="text-xs text-gray-500 mt-2">This address will be shown to users on the deposit page.</p>
                     </div>
-                    <button className="bg-primary text-white px-6 py-2 rounded-lg font-medium hover:bg-indigo-700 transition">
+                    <button onClick={save} className="bg-primary text-white px-6 py-2 rounded-lg font-medium hover:bg-indigo-700 transition">
                         Save Changes
                     </button>
                 </div>
@@ -612,7 +776,8 @@ const UserDashboardWrapper = ({ user, logout }: { user: User, logout: () => void
      <Routes>
         <Route index element={<UserDashboardHome user={user} />} />
         <Route path="wallet" element={<WalletPage user={user} />} />
-        <Route path="history" element={<div className="p-4 bg-white rounded shadow">History Page</div>} />
+        <Route path="history" element={<div className="p-4 bg-white rounded shadow">History is available in API but requires UI implementation</div>} />
+        <Route path="profile" element={<div className="p-4 bg-white rounded shadow">Profile Settings</div>} />
      </Routes>
   </DashboardLayout>
 );
@@ -621,8 +786,8 @@ const AdminDashboardWrapper = ({ user, logout }: { user: User, logout: () => voi
   <DashboardLayout title="Admin Control Panel" user={user} logout={logout}>
      <Routes>
         <Route index element={<AdminDashboard />} />
-        <Route path="users" element={<div className="p-4 bg-white rounded shadow">User Management List</div>} />
-        <Route path="transactions" element={<div className="p-4 bg-white rounded shadow">Transaction Requests Approval</div>} />
+        <Route path="users" element={<AdminUsers />} />
+        <Route path="transactions" element={<AdminTransactions />} />
         <Route path="settings" element={<AdminSettings />} />
      </Routes>
   </DashboardLayout>
@@ -630,24 +795,46 @@ const AdminDashboardWrapper = ({ user, logout }: { user: User, logout: () => voi
 
 function App() {
   const [user, setUser] = useState<User | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  const fetchUser = async (token: string) => {
+      try {
+          const res = await fetch(`${API_BASE_URL}/api/user`, {
+              headers: { 'Authorization': `Bearer ${token}` }
+          });
+          if(res.ok) {
+              const userData = await res.json();
+              setUser(userData);
+          } else {
+              localStorage.removeItem('minrely_token');
+          }
+      } catch(e) {
+          console.error(e);
+      } finally {
+          setLoading(false);
+      }
+  };
+
+  useEffect(() => {
+    const token = localStorage.getItem('minrely_token');
+    if (token) {
+      fetchUser(token);
+    } else {
+        setLoading(false);
+    }
+  }, []);
 
   const handleLogin = (userData: User) => {
     setUser(userData);
-    localStorage.setItem('minrely_user', JSON.stringify(userData));
   };
 
   const handleLogout = () => {
     setUser(null);
-    localStorage.removeItem('minrely_user');
+    localStorage.removeItem('minrely_token');
+    window.location.hash = '#/';
   };
 
-  // Check auth on load
-  useEffect(() => {
-    const saved = localStorage.getItem('minrely_user');
-    if (saved) {
-      setUser(JSON.parse(saved));
-    }
-  }, []);
+  if(loading) return <div className="h-screen flex items-center justify-center">Loading...</div>;
 
   return (
     <HashRouter>
