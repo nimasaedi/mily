@@ -1,16 +1,15 @@
 const express = require('express');
 const mysql = require('mysql2');
 const cors = require('cors');
-const bcrypt = require('bcrypt');
+const bcrypt = require('bcryptjs'); // Using bcryptjs as requested
 const jwt = require('jsonwebtoken');
 require('dotenv').config();
 
 const app = express();
-// Default to 5000 as requested
 const PORT = process.env.PORT || 5000;
 
 // --- CORS Configuration ---
-app.set('trust proxy', 1); // Trust cPanel proxy
+app.set('trust proxy', 1); // Essential for cPanel/Passenger
 app.use(cors({
     origin: '*', 
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
@@ -21,7 +20,6 @@ app.use(cors({
 app.use(express.json());
 
 // --- Database Connection ---
-// Credentials must be provided via .env file
 const db = mysql.createPool({
   host: process.env.DB_HOST,
   user: process.env.DB_USER,
@@ -35,7 +33,7 @@ const db = mysql.createPool({
 // Test Connection
 db.getConnection((err, connection) => {
   if (err) {
-    console.error('❌ Database Connection Error. Please check your .env file:', err.message);
+    console.error('❌ Database Connection Error:', err.message);
   } else {
     console.log('✅ Connected to MySQL Database Successfully');
     connection.release();
@@ -43,7 +41,7 @@ db.getConnection((err, connection) => {
 });
 
 // --- Constants ---
-const JWT_SECRET = process.env.JWT_SECRET || 'default_secret_key_please_change_in_env';
+const JWT_SECRET = process.env.JWT_SECRET || 'default_secret';
 
 // --- Middleware ---
 const authenticateToken = (req, res, next) => {
@@ -107,7 +105,7 @@ app.get('/api/user', authenticateToken, (req, res) => {
   });
 });
 
-// Transaction Request (Deposit/Withdraw)
+// Transaction Request
 app.post('/api/transaction', authenticateToken, (req, res) => {
   const { type, amount, address } = req.body;
   const sql = 'INSERT INTO transactions (user_id, type, amount, status, address, created_at) VALUES (?, ?, ?, ?, ?, NOW())';
@@ -118,8 +116,6 @@ app.post('/api/transaction', authenticateToken, (req, res) => {
 });
 
 // --- Admin Routes ---
-
-// Get All Users
 app.get('/api/admin/users', authenticateToken, (req, res) => {
     if (req.user.role !== 'admin') return res.sendStatus(403);
     db.query('SELECT id, email, balance, role, is_active FROM users', (err, results) => {
@@ -128,7 +124,6 @@ app.get('/api/admin/users', authenticateToken, (req, res) => {
     });
 });
 
-// Get Pending Transactions
 app.get('/api/admin/transactions', authenticateToken, (req, res) => {
     if (req.user.role !== 'admin') return res.sendStatus(403);
     db.query('SELECT t.*, u.email FROM transactions t JOIN users u ON t.user_id = u.id WHERE status = "pending"', (err, results) => {
@@ -137,26 +132,20 @@ app.get('/api/admin/transactions', authenticateToken, (req, res) => {
     });
 });
 
-// Update Transaction (Approve/Reject)
 app.post('/api/admin/transaction/update', authenticateToken, (req, res) => {
     if (req.user.role !== 'admin') return res.sendStatus(403);
-    const { transactionId, status, userId, amount, type } = req.body; // status: 'approved' or 'rejected'
+    const { transactionId, status, userId, amount, type } = req.body;
     
-    // Start transaction
     db.beginTransaction(err => {
         if (err) return res.status(500).json({ error: err.message });
 
         db.query('UPDATE transactions SET status = ? WHERE id = ?', [status, transactionId], (err, result) => {
-            if (err) {
-                return db.rollback(() => res.status(500).json({ error: err.message }));
-            }
+            if (err) return db.rollback(() => res.status(500).json({ error: err.message }));
 
             if (status === 'approved') {
                 let balanceChange = type === 'deposit' ? amount : -amount;
                 db.query('UPDATE users SET balance = balance + ? WHERE id = ?', [balanceChange, userId], (err, result) => {
-                    if (err) {
-                        return db.rollback(() => res.status(500).json({ error: err.message }));
-                    }
+                    if (err) return db.rollback(() => res.status(500).json({ error: err.message }));
                     db.commit(err => {
                         if (err) return db.rollback(() => res.status(500).json({ error: err.message }));
                         res.json({ message: 'Transaction approved and balance updated' });
@@ -172,7 +161,6 @@ app.post('/api/admin/transaction/update', authenticateToken, (req, res) => {
     });
 });
 
-// Get/Set Settings
 app.get('/api/settings', (req, res) => {
     db.query('SELECT * FROM settings LIMIT 1', (err, results) => {
         if (err) return res.status(500).json({ error: err.message });
@@ -190,9 +178,8 @@ app.post('/api/admin/settings', authenticateToken, (req, res) => {
     });
 });
 
-// --- Basic Health Check Route ---
+// --- Health Check ---
 app.get('/', (req, res) => {
-  console.log("Health Check Requested");
   res.status(200).json({ 
     message: 'MinRely Backend API is running successfully!',
     environment: process.env.NODE_ENV || 'development',
