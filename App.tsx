@@ -5,7 +5,7 @@ import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContai
 import { motion, AnimatePresence } from 'framer-motion';
 
 // --- API CONFIGURATION ---
-// Updated to the new root path provided
+// Backend is hosted at req.rider2.ir
 const API_BASE_URL = "https://req.rider2.ir";
 
 // --- Service Helpers ---
@@ -81,7 +81,7 @@ const Footer = ({ apiStatus }: { apiStatus: 'checking' | 'online' | 'offline' | 
             <span className="text-gray-400">System Status:</span>
             {apiStatus === 'checking' && <span className="text-yellow-500 flex items-center"><span className="w-2 h-2 bg-yellow-500 rounded-full mr-1 animate-pulse"></span> Connecting...</span>}
             {apiStatus === 'online' && <span className="text-green-500 flex items-center"><span className="w-2 h-2 bg-green-500 rounded-full mr-1"></span> Online</span>}
-            {apiStatus === 'offline' && <span className="text-red-500 flex items-center"><span className="w-2 h-2 bg-red-500 rounded-full mr-1"></span> Offline (Check Node.js/CORS)</span>}
+            {apiStatus === 'offline' && <span className="text-red-500 flex items-center"><span className="w-2 h-2 bg-red-500 rounded-full mr-1"></span> Offline (Check CORS/Server)</span>}
             {apiStatus === 'html_error' && <span className="text-orange-600 flex items-center font-bold"><span className="w-2 h-2 bg-orange-600 rounded-full mr-1"></span> Error: Backend Not Started (Index of /)</span>}
         </div>
       </div>
