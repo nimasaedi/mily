@@ -9,22 +9,40 @@ const app = express();
 const PORT = process.env.PORT || 5000;
 
 // --- CORS Configuration ---
-const allowedOrigins = ['https://minrely.com', 'https://www.minrely.com', 'https://req.rider2.ir'];
+const allowedOrigins = [
+    'https://minrely.com', 
+    'https://www.minrely.com', 
+    'https://req.rider2.ir',
+    'http://localhost:5173', // For local development
+    'http://localhost:4173'  // For local preview
+];
 
 app.set('trust proxy', 1); // Essential for cPanel/Passenger
-app.use(cors({
+
+const corsOptions = {
     origin: function (origin, callback) {
-        // Allow requests with no origin (like mobile apps or curl requests)
+        // Allow requests with no origin (like mobile apps, curl requests, or server-to-server)
         if (!origin) return callback(null, true);
-        if (allowedOrigins.indexOf(origin) === -1) {
-            return callback(new Error('CORS Policy: Origin not allowed'), false);
+        
+        if (allowedOrigins.indexOf(origin) !== -1) {
+            return callback(null, true);
+        } else {
+            // IMPORTANT: Do not pass an Error object here, as it causes a 500 Internal Server Error on Apache/Passenger.
+            // Just pass 'false' to deny the request gracefully.
+            console.log('CORS Blocked:', origin);
+            return callback(null, false);
         }
-        return callback(null, true);
     },
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin'],
     credentials: false 
-}));
+};
+
+// Enable CORS Pre-Flight for all routes (Fixes OPTIONS 500 Error)
+app.options('*', cors(corsOptions));
+
+// Enable CORS for actual requests
+app.use(cors(corsOptions));
 
 app.use(express.json());
 
