@@ -9,35 +9,29 @@ const PORT = process.env.PORT || 5000;
 
 app.set('trust proxy', 1);
 
-// --- MANUAL CORS MIDDLEWARE (FIX FOR CPANEL 500 ERROR) ---
+// --- ROBUST CORS MIDDLEWARE ---
+// This middleware runs before anything else to ensure headers are ALWAYS present.
 app.use((req, res, next) => {
-    // Allow access from any origin
-    res.header("Access-Control-Allow-Origin", "*");
+    // Allow any origin (Wildcard) to fix proxy/VPN issues and prevent 500 errors
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+    res.setHeader("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept, Authorization");
     
-    // Allow specific headers (Authorization is crucial for your token)
-    res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept, Authorization");
-    
-    // Allow methods
-    res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
-    
-    // Disable credentials (cookies) since we use Bearer token
-    res.header("Access-Control-Allow-Credentials", "false");
-
-    // INTERCEPT OPTIONS METHOD
-    // If the browser is sending a preflight check, respond with 200 OK immediately.
-    // This prevents the server from processing further and crashing/returning 500.
+    // Handle Preflight (OPTIONS) immediately without crashing
     if (req.method === 'OPTIONS') {
-        return res.sendStatus(200);
+        res.status(200).end();
+        return;
     }
-
     next();
 });
 
 app.use(express.json());
 
 // --- Database Connection ---
+// CRITICAL FIX: We force 'localhost' here. Using Public IP (62.60...) on cPanel often fails 
+// due to firewall/NAT loopback rules when Node and MySQL are on the same server.
 const db = mysql.createPool({
-  host: process.env.DB_HOST,
+  host: 'localhost', 
   user: process.env.DB_USER,
   password: process.env.DB_PASSWORD,
   database: process.env.DB_NAME,
@@ -46,15 +40,20 @@ const db = mysql.createPool({
   queueLimit: 0
 });
 
-// Test Connection on Start
-db.getConnection((err, connection) => {
-  if (err) {
-    console.error('❌ Database Connection Error:', err.message);
-  } else {
-    console.log('✅ Connected to MySQL Database Successfully');
-    if(connection) connection.release();
-  }
-});
+// Helper to keep connection alive
+const keepAlive = () => {
+    db.getConnection((err, connection) => {
+        if (err) {
+            console.error('⚠️ DB Connection Check Failed:', err.message);
+        } else {
+            // console.log('✅ DB Ping Successful');
+            connection.ping();
+            connection.release();
+        }
+    });
+};
+// Check DB every 5 minutes
+setInterval(keepAlive, 300000);
 
 // --- Constants ---
 const JWT_SECRET = process.env.JWT_SECRET || 'default_secret';
@@ -86,17 +85,16 @@ app.post('/api/register', async (req, res) => {
     db.query(sql, [email, hashedPassword, referralCode, 'user', 0], (err, result) => {
         if (err) {
             console.error("SQL Error during register:", err);
-            // Handle duplicate email specifically
             if (err.code === 'ER_DUP_ENTRY') {
                 return res.status(409).json({ error: "This email is already registered." });
             }
-            return res.status(500).json({ error: "Database Error: " + err.message });
+            return res.status(500).json({ error: "Database Error" });
         }
         res.status(201).json({ message: 'User registered successfully', user: { email, role: 'user' } });
     });
   } catch (e) {
       console.error("Register Exception:", e);
-      res.status(500).json({ error: "Internal server error: " + e.message });
+      res.status(500).json({ error: "Internal server error" });
   }
 });
 
@@ -107,7 +105,7 @@ app.post('/api/login', (req, res) => {
   db.query('SELECT * FROM users WHERE email = ?', [email], async (err, results) => {
     if (err) {
         console.error("SQL Error during login:", err);
-        return res.status(500).json({ error: "Database Error: " + err.message });
+        return res.status(500).json({ error: "Database Error" });
     }
     if (results.length === 0) return res.status(400).json({ message: 'User not found' });
     
