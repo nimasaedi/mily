@@ -9,17 +9,15 @@ const app = express();
 const PORT = process.env.PORT || 5000;
 
 // --- CORS Configuration ---
-// Allow frontend domain (minrely.com) to access this backend (req.rider2.ir)
 const allowedOrigins = ['https://minrely.com', 'https://www.minrely.com', 'https://req.rider2.ir'];
 
 app.set('trust proxy', 1); // Essential for cPanel/Passenger
 app.use(cors({
     origin: function (origin, callback) {
-        // allow requests with no origin (like mobile apps or curl requests)
+        // Allow requests with no origin (like mobile apps or curl requests)
         if (!origin) return callback(null, true);
         if (allowedOrigins.indexOf(origin) === -1) {
-            var msg = 'The CORS policy for this site does not allow access from the specified Origin.';
-            return callback(new Error(msg), false);
+            return callback(new Error('CORS Policy: Origin not allowed'), false);
         }
         return callback(null, true);
     },
@@ -41,7 +39,7 @@ const db = mysql.createPool({
   queueLimit: 0
 });
 
-// Test Connection
+// Test Connection Log
 db.getConnection((err, connection) => {
   if (err) {
     console.error('❌ Database Connection Error:', err.message);
@@ -191,11 +189,19 @@ app.post('/api/admin/settings', authenticateToken, (req, res) => {
 
 // --- Health Check ---
 app.get('/', (req, res) => {
-  res.status(200).json({ 
-    message: 'MinRely Backend API is running successfully!',
-    environment: process.env.NODE_ENV || 'development',
-    status: 'active',
-    allowed_origins: allowedOrigins
+  // Perform a real database check
+  db.getConnection((err, connection) => {
+      const dbStatus = err ? 'error' : 'connected';
+      const dbMessage = err ? err.message : 'OK';
+      if(connection) connection.release();
+
+      res.status(200).json({ 
+        message: 'MinRely Backend API is running successfully!',
+        environment: process.env.NODE_ENV || 'development',
+        status: 'active',
+        database: dbStatus,
+        db_message: dbMessage
+      });
   });
 });
 
