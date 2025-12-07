@@ -2,10 +2,13 @@ const express = require('express');
 const mysql = require('mysql2');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const cors = require('cors'); // Import cors library
 require('dotenv').config();
 
 const app = express();
 const PORT = process.env.PORT || 5000;
+
+app.set('trust proxy', 1);
 
 // --- CONFIGURATION ---
 const allowedOrigins = [
@@ -14,31 +17,26 @@ const allowedOrigins = [
     'https://req.rider2.ir'
 ];
 
-app.set('trust proxy', 1);
-
-// --- MANUAL CORS MIDDLEWARE (Fixes cPanel 500 Error) ---
-app.use((req, res, next) => {
-    const origin = req.headers.origin;
+// --- ROBUST CORS MIDDLEWARE ---
+const corsOptions = {
+  origin: function (origin, callback) {
+    // Allow requests with no origin (like mobile apps or curl requests)
+    if (!origin) return callback(null, true);
     
-    // Check if the origin is in our whitelist
-    if (allowedOrigins.includes(origin)) {
-        res.setHeader('Access-Control-Allow-Origin', origin);
-    } 
-    // Uncomment the line below if you want to allow ALL origins for testing
-    // res.setHeader('Access-Control-Allow-Origin', '*');
-
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept, Origin');
-    res.setHeader('Access-Control-Allow-Credentials', 'true');
-
-    // Handle Pre-flight OPTIONS request immediately
-    if (req.method === 'OPTIONS') {
-        return res.status(200).end();
+    if (allowedOrigins.indexOf(origin) !== -1) {
+      callback(null, true);
+    } else {
+      // Intentionally return false instead of an Error to avoid 500 crashes on strict servers
+      callback(null, false);
     }
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin'],
+  optionsSuccessStatus: 200 // some legacy browsers (IE11, various SmartTVs) choke on 204
+};
 
-    next();
-});
-
+app.use(cors(corsOptions));
 app.use(express.json());
 
 // --- Database Connection ---
