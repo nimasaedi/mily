@@ -2,7 +2,6 @@ const express = require('express');
 const mysql = require('mysql2');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-const cors = require('cors');
 require('dotenv').config();
 
 const app = express();
@@ -10,15 +9,29 @@ const PORT = process.env.PORT || 5000;
 
 app.set('trust proxy', 1);
 
-// --- CORS CONFIGURATION (BULLETPROOF) ---
-// Since we use Bearer Tokens (headers) and not Cookies, we can safely use wildcard '*'
-// This fixes the "Failed to fetch" and "500 Internal Server Error" on cPanel completely.
-app.use(cors({
-    origin: '*', 
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
-    credentials: false // Important: must be false when origin is '*'
-}));
+// --- MANUAL CORS MIDDLEWARE (FIX FOR CPANEL 500 ERROR) ---
+app.use((req, res, next) => {
+    // Allow access from any origin
+    res.header("Access-Control-Allow-Origin", "*");
+    
+    // Allow specific headers (Authorization is crucial for your token)
+    res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept, Authorization");
+    
+    // Allow methods
+    res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+    
+    // Disable credentials (cookies) since we use Bearer token
+    res.header("Access-Control-Allow-Credentials", "false");
+
+    // INTERCEPT OPTIONS METHOD
+    // If the browser is sending a preflight check, respond with 200 OK immediately.
+    // This prevents the server from processing further and crashing/returning 500.
+    if (req.method === 'OPTIONS') {
+        return res.sendStatus(200);
+    }
+
+    next();
+});
 
 app.use(express.json());
 
