@@ -12,9 +12,7 @@ const PORT = process.env.PORT || 5000;
 const allowedOrigins = [
     'https://minrely.com', 
     'https://www.minrely.com', 
-    'https://req.rider2.ir',
-    'http://localhost:5173', // For local development
-    'http://localhost:4173'  // For local preview
+    'https://req.rider2.ir'
 ];
 
 app.set('trust proxy', 1); // Essential for cPanel/Passenger
