@@ -2,7 +2,7 @@ const express = require('express');
 const mysql = require('mysql2');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-const cors = require('cors'); // Import cors library
+const cors = require('cors');
 require('dotenv').config();
 
 const app = express();
@@ -10,33 +10,16 @@ const PORT = process.env.PORT || 5000;
 
 app.set('trust proxy', 1);
 
-// --- CONFIGURATION ---
-const allowedOrigins = [
-    'https://minrely.com', 
-    'https://www.minrely.com', 
-    'https://req.rider2.ir'
-];
+// --- CORS CONFIGURATION (BULLETPROOF) ---
+// Since we use Bearer Tokens (headers) and not Cookies, we can safely use wildcard '*'
+// This fixes the "Failed to fetch" and "500 Internal Server Error" on cPanel completely.
+app.use(cors({
+    origin: '*', 
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+    credentials: false // Important: must be false when origin is '*'
+}));
 
-// --- ROBUST CORS MIDDLEWARE ---
-const corsOptions = {
-  origin: function (origin, callback) {
-    // Allow requests with no origin (like mobile apps or curl requests)
-    if (!origin) return callback(null, true);
-    
-    if (allowedOrigins.indexOf(origin) !== -1) {
-      callback(null, true);
-    } else {
-      // Intentionally return false instead of an Error to avoid 500 crashes on strict servers
-      callback(null, false);
-    }
-  },
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin'],
-  optionsSuccessStatus: 200 // some legacy browsers (IE11, various SmartTVs) choke on 204
-};
-
-app.use(cors(corsOptions));
 app.use(express.json());
 
 // --- Database Connection ---
@@ -50,13 +33,13 @@ const db = mysql.createPool({
   queueLimit: 0
 });
 
-// Test Connection Log
+// Test Connection on Start
 db.getConnection((err, connection) => {
   if (err) {
     console.error('❌ Database Connection Error:', err.message);
   } else {
     console.log('✅ Connected to MySQL Database Successfully');
-    connection.release();
+    if(connection) connection.release();
   }
 });
 
@@ -86,20 +69,21 @@ app.post('/api/register', async (req, res) => {
   try {
     const hashedPassword = await bcrypt.hash(password, 10);
     const sql = 'INSERT INTO users (email, password, referral_code, role, balance) VALUES (?, ?, ?, ?, ?)';
+    
     db.query(sql, [email, hashedPassword, referralCode, 'user', 0], (err, result) => {
         if (err) {
-            console.error("Register SQL Error:", err);
-            // Handle duplicate email error
+            console.error("SQL Error during register:", err);
+            // Handle duplicate email specifically
             if (err.code === 'ER_DUP_ENTRY') {
-                return res.status(409).json({ error: "Email already exists" });
+                return res.status(409).json({ error: "This email is already registered." });
             }
-            return res.status(500).json({ error: err.message });
+            return res.status(500).json({ error: "Database Error: " + err.message });
         }
         res.status(201).json({ message: 'User registered successfully', user: { email, role: 'user' } });
     });
   } catch (e) {
-      console.error("Register Error:", e);
-      res.status(500).json({ error: "Internal server error" });
+      console.error("Register Exception:", e);
+      res.status(500).json({ error: "Internal server error: " + e.message });
   }
 });
 
@@ -108,11 +92,16 @@ app.post('/api/login', (req, res) => {
   const { email, password } = req.body;
   
   db.query('SELECT * FROM users WHERE email = ?', [email], async (err, results) => {
-    if (err) return res.status(500).json({ error: err.message });
+    if (err) {
+        console.error("SQL Error during login:", err);
+        return res.status(500).json({ error: "Database Error: " + err.message });
+    }
     if (results.length === 0) return res.status(400).json({ message: 'User not found' });
     
     const user = results[0];
-    if (await bcrypt.compare(password, user.password)) {
+    const isMatch = await bcrypt.compare(password, user.password);
+    
+    if (isMatch) {
       const token = jwt.sign({ id: user.id, role: user.role }, JWT_SECRET);
       res.json({ token, user: { id: user.id, email: user.email, role: user.role, balance: user.balance } });
     } else {
@@ -204,7 +193,6 @@ app.post('/api/admin/settings', authenticateToken, (req, res) => {
 
 // --- Health Check ---
 app.get('/', (req, res) => {
-  // Perform a real database check
   db.getConnection((err, connection) => {
       const dbStatus = err ? 'error' : 'connected';
       const dbMessage = err ? err.message : 'OK';
@@ -212,7 +200,6 @@ app.get('/', (req, res) => {
 
       res.status(200).json({ 
         message: 'MinRely Backend API is running successfully!',
-        environment: process.env.NODE_ENV || 'development',
         status: 'active',
         database: dbStatus,
         db_message: dbMessage
