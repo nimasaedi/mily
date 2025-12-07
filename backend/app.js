@@ -1,46 +1,43 @@
 const express = require('express');
 const mysql = require('mysql2');
-const cors = require('cors');
-const bcrypt = require('bcryptjs'); // Using bcryptjs as requested
+const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 require('dotenv').config();
 
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-// --- CORS Configuration ---
+// --- CONFIGURATION ---
 const allowedOrigins = [
     'https://minrely.com', 
     'https://www.minrely.com', 
     'https://req.rider2.ir'
 ];
 
-app.set('trust proxy', 1); // Essential for cPanel/Passenger
+app.set('trust proxy', 1);
 
-const corsOptions = {
-    origin: function (origin, callback) {
-        // Allow requests with no origin (like mobile apps, curl requests, or server-to-server)
-        if (!origin) return callback(null, true);
-        
-        if (allowedOrigins.indexOf(origin) !== -1) {
-            return callback(null, true);
-        } else {
-            // IMPORTANT: Do not pass an Error object here, as it causes a 500 Internal Server Error on Apache/Passenger.
-            // Just pass 'false' to deny the request gracefully.
-            console.log('CORS Blocked:', origin);
-            return callback(null, false);
-        }
-    },
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin'],
-    credentials: false 
-};
+// --- MANUAL CORS MIDDLEWARE (Fixes cPanel 500 Error) ---
+app.use((req, res, next) => {
+    const origin = req.headers.origin;
+    
+    // Check if the origin is in our whitelist
+    if (allowedOrigins.includes(origin)) {
+        res.setHeader('Access-Control-Allow-Origin', origin);
+    } 
+    // Uncomment the line below if you want to allow ALL origins for testing
+    // res.setHeader('Access-Control-Allow-Origin', '*');
 
-// Enable CORS Pre-Flight for all routes (Fixes OPTIONS 500 Error)
-app.options('*', cors(corsOptions));
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept, Origin');
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
 
-// Enable CORS for actual requests
-app.use(cors(corsOptions));
+    // Handle Pre-flight OPTIONS request immediately
+    if (req.method === 'OPTIONS') {
+        return res.status(200).end();
+    }
+
+    next();
+});
 
 app.use(express.json());
 
@@ -94,6 +91,10 @@ app.post('/api/register', async (req, res) => {
     db.query(sql, [email, hashedPassword, referralCode, 'user', 0], (err, result) => {
         if (err) {
             console.error("Register SQL Error:", err);
+            // Handle duplicate email error
+            if (err.code === 'ER_DUP_ENTRY') {
+                return res.status(409).json({ error: "Email already exists" });
+            }
             return res.status(500).json({ error: err.message });
         }
         res.status(201).json({ message: 'User registered successfully', user: { email, role: 'user' } });
