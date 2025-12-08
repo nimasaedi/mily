@@ -2,7 +2,6 @@ const express = require('express');
 const mysql = require('mysql2');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-const cors = require('cors'); // Using the library is safer for cPanel
 require('dotenv').config();
 
 const app = express();
@@ -11,6 +10,7 @@ const PORT = process.env.PORT || 5000;
 app.set('trust proxy', 1);
 
 // --- GLOBAL ERROR HANDLERS (Prevent App Crash) ---
+// These ensure the app stays alive even if a module fails, preventing the "500 Internal Server Error" page from Apache.
 process.on('uncaughtException', (err) => {
     console.error('CRITICAL ERROR (Uncaught Exception):', err);
 });
@@ -19,25 +19,44 @@ process.on('unhandledRejection', (reason, promise) => {
     console.error('CRITICAL ERROR (Unhandled Rejection):', reason);
 });
 
-// --- CORS CONFIGURATION (Fix for "Failed to fetch") ---
-// We use 'origin: true' which reflects the request origin back in the headers.
-// This bypasses the issue where wildcard '*' conflicts with credentials.
-app.use(cors({
-    origin: true, // Dynamically set Access-Control-Allow-Origin to the requester
-    credentials: true, // Allow cookies/headers
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin'],
-    optionsSuccessStatus: 200 // Fix for legacy browsers/smart TVs
-}));
+// --- MANUAL CORS CONFIGURATION (The Bulletproof Method) ---
+// Instead of using the 'cors' library which can conflict with cPanel/Apache,
+// we manually inject the necessary headers for every single request.
+app.use((req, res, next) => {
+    // 1. Get the origin of the request (e.g., https://minrely.com)
+    const origin = req.headers.origin;
+    
+    // 2. Allow that origin specifically (Reflected Origin Strategy)
+    if (origin) {
+        res.setHeader('Access-Control-Allow-Origin', origin);
+    } else {
+        // Fallback for tools like Postman or direct browser hits
+        res.setHeader('Access-Control-Allow-Origin', '*');
+    }
 
-// Explicitly handle OPTIONS for all routes to be 100% sure
-app.options('*', cors());
+    // 3. Allow Credentials (cookies, authorization headers)
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+
+    // 4. Allow Standard Methods
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+
+    // 5. Allow Necessary Headers
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept, Origin');
+
+    // 6. Handle Preflight (OPTIONS) requests immediately
+    // This prevents the request from hitting the DB or other logic, fixing the 500 error.
+    if (req.method === 'OPTIONS') {
+        return res.sendStatus(200);
+    }
+
+    next();
+});
 
 app.use(express.json());
 
 // --- Database Configuration ---
 const dbConfig = {
-    host: 'localhost', // Always use localhost on cPanel
+    host: 'localhost', // Force localhost to avoid loopback firewall issues
     user: process.env.DB_USER,
     password: process.env.DB_PASSWORD,
     database: process.env.DB_NAME,
@@ -46,14 +65,14 @@ const dbConfig = {
     queueLimit: 0
 };
 
-// Check if credentials exist to avoid crash
+// Validate Env
 if (!dbConfig.user || !dbConfig.database) {
     console.error("❌ CRITICAL: Database credentials missing in .env file.");
 }
 
 const db = mysql.createPool(dbConfig);
 
-// Keep connection alive
+// Keep DB Connection Alive
 const keepAlive = () => {
     if (!dbConfig.user) return;
     db.getConnection((err, connection) => {
@@ -65,7 +84,7 @@ const keepAlive = () => {
         }
     });
 };
-setInterval(keepAlive, 300000);
+setInterval(keepAlive, 300000); // Every 5 minutes
 
 // --- Constants ---
 const JWT_SECRET = process.env.JWT_SECRET || 'default_secret';
@@ -89,7 +108,6 @@ const authenticateToken = (req, res, next) => {
 app.post('/api/register', async (req, res) => {
   const { email, password, referralCode } = req.body;
   
-  // Basic validation
   if (!email || !password) {
       return res.status(400).json({ error: "Email and password required" });
   }
