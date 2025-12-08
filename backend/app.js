@@ -2,6 +2,7 @@ const express = require('express');
 const mysql = require('mysql2');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const cors = require('cors'); // Using the library is safer for cPanel
 require('dotenv').config();
 
 const app = express();
@@ -18,28 +19,23 @@ process.on('unhandledRejection', (reason, promise) => {
     console.error('CRITICAL ERROR (Unhandled Rejection):', reason);
 });
 
-// --- ROBUST CORS MIDDLEWARE ---
-app.use((req, res, next) => {
-    try {
-        // Wildcard allows all origins (Fixes proxy/VPN/Mobile issues)
-        res.setHeader("Access-Control-Allow-Origin", "*");
-        res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
-        res.setHeader("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept, Authorization");
-        
-        // Handle Preflight (OPTIONS) immediately
-        if (req.method === 'OPTIONS') {
-            res.status(200).end();
-            return;
-        }
-    } catch (e) {
-        console.error("CORS Error:", e);
-    }
-    next();
-});
+// --- CORS CONFIGURATION (Fix for "Failed to fetch") ---
+// We use 'origin: true' which reflects the request origin back in the headers.
+// This bypasses the issue where wildcard '*' conflicts with credentials.
+app.use(cors({
+    origin: true, // Dynamically set Access-Control-Allow-Origin to the requester
+    credentials: true, // Allow cookies/headers
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin'],
+    optionsSuccessStatus: 200 // Fix for legacy browsers/smart TVs
+}));
+
+// Explicitly handle OPTIONS for all routes to be 100% sure
+app.options('*', cors());
 
 app.use(express.json());
 
-// --- Database Configuration Check ---
+// --- Database Configuration ---
 const dbConfig = {
     host: 'localhost', // Always use localhost on cPanel
     user: process.env.DB_USER,
@@ -57,9 +53,9 @@ if (!dbConfig.user || !dbConfig.database) {
 
 const db = mysql.createPool(dbConfig);
 
-// Helper to keep connection alive
+// Keep connection alive
 const keepAlive = () => {
-    if (!dbConfig.user) return; // Don't try if config is missing
+    if (!dbConfig.user) return;
     db.getConnection((err, connection) => {
         if (err) {
             console.error('⚠️ DB Connection Check Failed:', err.message);
@@ -69,7 +65,6 @@ const keepAlive = () => {
         }
     });
 };
-// Check DB every 5 minutes
 setInterval(keepAlive, 300000);
 
 // --- Constants ---
@@ -93,7 +88,11 @@ const authenticateToken = (req, res, next) => {
 // Register
 app.post('/api/register', async (req, res) => {
   const { email, password, referralCode } = req.body;
-  if (!email || !password) return res.status(400).json({ error: "Email and password required" });
+  
+  // Basic validation
+  if (!email || !password) {
+      return res.status(400).json({ error: "Email and password required" });
+  }
 
   try {
     const hashedPassword = await bcrypt.hash(password, 10);
@@ -225,7 +224,6 @@ app.post('/api/admin/settings', authenticateToken, (req, res) => {
 
 // --- Health Check ---
 app.get('/', (req, res) => {
-  // Safe check if db config is present
   if (!dbConfig.user) {
        return res.status(200).json({
            status: 'warning',
