@@ -9,44 +9,61 @@ const PORT = process.env.PORT || 5000;
 
 app.set('trust proxy', 1);
 
+// --- GLOBAL ERROR HANDLERS (Prevent App Crash) ---
+process.on('uncaughtException', (err) => {
+    console.error('CRITICAL ERROR (Uncaught Exception):', err);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+    console.error('CRITICAL ERROR (Unhandled Rejection):', reason);
+});
+
 // --- ROBUST CORS MIDDLEWARE ---
-// This middleware runs before anything else to ensure headers are ALWAYS present.
 app.use((req, res, next) => {
-    // Allow any origin (Wildcard) to fix proxy/VPN issues and prevent 500 errors
-    res.setHeader("Access-Control-Allow-Origin", "*");
-    res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
-    res.setHeader("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept, Authorization");
-    
-    // Handle Preflight (OPTIONS) immediately without crashing
-    if (req.method === 'OPTIONS') {
-        res.status(200).end();
-        return;
+    try {
+        // Wildcard allows all origins (Fixes proxy/VPN/Mobile issues)
+        res.setHeader("Access-Control-Allow-Origin", "*");
+        res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+        res.setHeader("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept, Authorization");
+        
+        // Handle Preflight (OPTIONS) immediately
+        if (req.method === 'OPTIONS') {
+            res.status(200).end();
+            return;
+        }
+    } catch (e) {
+        console.error("CORS Error:", e);
     }
     next();
 });
 
 app.use(express.json());
 
-// --- Database Connection ---
-// CRITICAL FIX: We force 'localhost' here. Using Public IP (62.60...) on cPanel often fails 
-// due to firewall/NAT loopback rules when Node and MySQL are on the same server.
-const db = mysql.createPool({
-  host: 'localhost', 
-  user: process.env.DB_USER,
-  password: process.env.DB_PASSWORD,
-  database: process.env.DB_NAME,
-  waitForConnections: true,
-  connectionLimit: 10,
-  queueLimit: 0
-});
+// --- Database Configuration Check ---
+const dbConfig = {
+    host: 'localhost', // Always use localhost on cPanel
+    user: process.env.DB_USER,
+    password: process.env.DB_PASSWORD,
+    database: process.env.DB_NAME,
+    waitForConnections: true,
+    connectionLimit: 10,
+    queueLimit: 0
+};
+
+// Check if credentials exist to avoid crash
+if (!dbConfig.user || !dbConfig.database) {
+    console.error("❌ CRITICAL: Database credentials missing in .env file.");
+}
+
+const db = mysql.createPool(dbConfig);
 
 // Helper to keep connection alive
 const keepAlive = () => {
+    if (!dbConfig.user) return; // Don't try if config is missing
     db.getConnection((err, connection) => {
         if (err) {
             console.error('⚠️ DB Connection Check Failed:', err.message);
         } else {
-            // console.log('✅ DB Ping Successful');
             connection.ping();
             connection.release();
         }
@@ -88,7 +105,7 @@ app.post('/api/register', async (req, res) => {
             if (err.code === 'ER_DUP_ENTRY') {
                 return res.status(409).json({ error: "This email is already registered." });
             }
-            return res.status(500).json({ error: "Database Error" });
+            return res.status(500).json({ error: "Database Error: " + err.message });
         }
         res.status(201).json({ message: 'User registered successfully', user: { email, role: 'user' } });
     });
@@ -105,18 +122,22 @@ app.post('/api/login', (req, res) => {
   db.query('SELECT * FROM users WHERE email = ?', [email], async (err, results) => {
     if (err) {
         console.error("SQL Error during login:", err);
-        return res.status(500).json({ error: "Database Error" });
+        return res.status(500).json({ error: "Database Error: " + err.message });
     }
     if (results.length === 0) return res.status(400).json({ message: 'User not found' });
     
     const user = results[0];
-    const isMatch = await bcrypt.compare(password, user.password);
-    
-    if (isMatch) {
-      const token = jwt.sign({ id: user.id, role: user.role }, JWT_SECRET);
-      res.json({ token, user: { id: user.id, email: user.email, role: user.role, balance: user.balance } });
-    } else {
-      res.status(403).json({ message: 'Invalid credentials' });
+    try {
+        const isMatch = await bcrypt.compare(password, user.password);
+        if (isMatch) {
+          const token = jwt.sign({ id: user.id, role: user.role }, JWT_SECRET);
+          res.json({ token, user: { id: user.id, email: user.email, role: user.role, balance: user.balance } });
+        } else {
+          res.status(403).json({ message: 'Invalid credentials' });
+        }
+    } catch (bcryptErr) {
+        console.error("Bcrypt Error:", bcryptErr);
+        res.status(500).json({ error: "Auth Error" });
     }
   });
 });
@@ -204,6 +225,15 @@ app.post('/api/admin/settings', authenticateToken, (req, res) => {
 
 // --- Health Check ---
 app.get('/', (req, res) => {
+  // Safe check if db config is present
+  if (!dbConfig.user) {
+       return res.status(200).json({
+           status: 'warning',
+           message: 'Backend running, but DB credentials missing in .env',
+           database: 'not_configured'
+       });
+  }
+
   db.getConnection((err, connection) => {
       const dbStatus = err ? 'error' : 'connected';
       const dbMessage = err ? err.message : 'OK';
