@@ -81,8 +81,8 @@ const Footer = ({ apiStatus }: { apiStatus: 'checking' | 'online' | 'offline' | 
             <span className="text-gray-400">System Status:</span>
             {apiStatus === 'checking' && <span className="text-yellow-500 flex items-center"><span className="w-2 h-2 bg-yellow-500 rounded-full mr-1 animate-pulse"></span> Connecting...</span>}
             {apiStatus === 'online' && <span className="text-green-500 flex items-center"><span className="w-2 h-2 bg-green-500 rounded-full mr-1"></span> Online</span>}
-            {apiStatus === 'offline' && <span className="text-red-500 flex items-center"><span className="w-2 h-2 bg-red-500 rounded-full mr-1"></span> Offline (Check CORS/Server)</span>}
-            {apiStatus === 'html_error' && <span className="text-orange-600 flex items-center font-bold"><span className="w-2 h-2 bg-orange-600 rounded-full mr-1"></span> Error: Backend Not Started (Index of /)</span>}
+            {apiStatus === 'offline' && <span className="text-red-500 flex items-center"><span className="w-2 h-2 bg-red-500 rounded-full mr-1"></span> Offline (Check Server)</span>}
+            {apiStatus === 'html_error' && <span className="text-orange-600 flex items-center font-bold"><span className="w-2 h-2 bg-orange-600 rounded-full mr-1"></span> Server Error (500)</span>}
         </div>
       </div>
       <div>
@@ -241,14 +241,9 @@ const AuthPage = ({ type, onLogin }: { type: 'login' | 'register', onLogin: (use
             body: JSON.stringify({ email, password, referralCode: referral })
         });
 
-        // Check content type to prevent parsing HTML error pages as JSON
         const contentType = response.headers.get("content-type");
         if (!contentType || !contentType.includes("application/json")) {
-            const text = await response.text();
-            if (text.includes("Index of /")) {
-                throw new Error("Backend server is not running (Index of / detected). Check server.");
-            }
-            throw new Error("Server returned an invalid response (not JSON). The backend might be down.");
+            throw new Error("Server Error (500): The backend is crashing or misconfigured.");
         }
 
         const data = await response.json();
@@ -849,14 +844,16 @@ function App() {
       const res = await fetch(`${API_BASE_URL}/`);
       const contentType = res.headers.get("content-type");
       
-      // If server returns HTML instead of JSON, it's likely showing "Index of /"
+      // If server returns HTML instead of JSON, it's likely showing "Index of /" or 500 error page
       if (contentType && !contentType.includes("application/json")) {
          const text = await res.text();
          if(text.includes("Index of")) {
              console.error("❌ API Error: Server is showing directory listing instead of running the app.");
-             setApiStatus('html_error');
-             return;
+         } else {
+             console.error("❌ API Error: Server returned HTML (likely 500 Error).");
          }
+         setApiStatus('html_error');
+         return;
       }
 
       if(res.ok) {

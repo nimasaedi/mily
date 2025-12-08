@@ -10,7 +10,6 @@ const PORT = process.env.PORT || 5000;
 app.set('trust proxy', 1);
 
 // --- GLOBAL ERROR HANDLERS (Prevent App Crash) ---
-// These ensure the app stays alive even if a module fails, preventing the "500 Internal Server Error" page from Apache.
 process.on('uncaughtException', (err) => {
     console.error('CRITICAL ERROR (Uncaught Exception):', err);
 });
@@ -19,32 +18,23 @@ process.on('unhandledRejection', (reason, promise) => {
     console.error('CRITICAL ERROR (Unhandled Rejection):', reason);
 });
 
-// --- MANUAL CORS CONFIGURATION (The Bulletproof Method) ---
-// Instead of using the 'cors' library which can conflict with cPanel/Apache,
-// we manually inject the necessary headers for every single request.
+// --- MANUAL CORS CONFIGURATION (Open Doors Strategy) ---
+// We use Wildcard (*) and disable Credentials. This removes all strict browser checks
+// and bypasses cPanel proxy filtering issues. Security is handled via Bearer Token.
 app.use((req, res, next) => {
-    // 1. Get the origin of the request (e.g., https://minrely.com)
-    const origin = req.headers.origin;
-    
-    // 2. Allow that origin specifically (Reflected Origin Strategy)
-    if (origin) {
-        res.setHeader('Access-Control-Allow-Origin', origin);
-    } else {
-        // Fallback for tools like Postman or direct browser hits
-        res.setHeader('Access-Control-Allow-Origin', '*');
-    }
+    // 1. Allow ALL origins
+    res.setHeader('Access-Control-Allow-Origin', '*');
 
-    // 3. Allow Credentials (cookies, authorization headers)
-    res.setHeader('Access-Control-Allow-Credentials', 'true');
-
-    // 4. Allow Standard Methods
+    // 2. Allow Standard Methods
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
 
-    // 5. Allow Necessary Headers
+    // 3. Allow Necessary Headers
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept, Origin');
 
-    // 6. Handle Preflight (OPTIONS) requests immediately
-    // This prevents the request from hitting the DB or other logic, fixing the 500 error.
+    // 4. Important: Do NOT set Access-Control-Allow-Credentials to true when using *
+    // This resolves the browser protocol violation.
+
+    // 5. Handle Preflight (OPTIONS) immediately to prevent 500 errors
     if (req.method === 'OPTIONS') {
         return res.sendStatus(200);
     }
@@ -56,7 +46,7 @@ app.use(express.json());
 
 // --- Database Configuration ---
 const dbConfig = {
-    host: 'localhost', // Force localhost to avoid loopback firewall issues
+    host: 'localhost', // Force localhost for cPanel internal connection
     user: process.env.DB_USER,
     password: process.env.DB_PASSWORD,
     database: process.env.DB_NAME,
